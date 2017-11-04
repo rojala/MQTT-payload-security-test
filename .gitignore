@@ -1,0 +1,7 @@
+
+*.bak
+*.pyc
+.vs*
+__pycache__
+secrets.bin
+*.log

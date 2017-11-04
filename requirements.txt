@@ -1,0 +1,30 @@
+# PYTHON 3.6.3
+#
+# Get compiler:
+#   Microsoft build tools: https://www.visualstudio.com/downloads/#build-tools-for-visual-studio-2017 
+#     --> Microsoft Visual C++ Redistributable for Visual Studio 2017 ==> x86 for 32-bit python
+#   This might have been enough http://landinghub.visualstudio.com/visual-cpp-build-tools
+#     --> Visual C++ 2015 Build Tools
+#
+# Before installing with pip:
+# 
+#   1. Open Developer command propt vc2015 in priviledged mode or
+#      (command prompt with admin privileges, Run vsvars32.bat in vc14)
+#   2. set CL=-FI"%VCINSTALLDIR%\INCLUDE\stdint.h"
+#
+# REMOVE PyCrypto first !!!
+#   pip uninstall pycrypto
+#
+# Install:
+#   pip install -r requirements.txt
+
+hexdump
+jsonpatch
+jsonpointer
+paho-mqtt
+# pycrypto - last update 3 years ago and widows10 compile failed -> pycryptodome is drop down replacement...
+# winrandom - needed only with pycrypto?
+
+pycryptodome
+salsa20
+pyinstaller
