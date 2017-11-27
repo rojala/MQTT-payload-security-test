@@ -32,8 +32,17 @@ AVAILABLE_ALGORITHMS = {"NONE":  {"class":none.MQTTNONE,     "klen":["0"],      
                         "SALSA": {"class":salsa.MQTTSALSA20, "klen":["32"],                           "mode":{"NONE":"NONE"}},
                         "RSA":   {"class":rsa.MQTTRSA,       "klen":["1024", "2048", "4096"],         "mode":{"NONE":"NONE"}}
                        }
+class CRC32HASH(object):
+    def __init__(self):
+        self.hash = 0
 
-AVAILABLE_MACS = {"MD5": hashlib.md5, "SHA1": hashlib.sha1, "SHA224": hashlib.sha224, "SHA256":hashlib.sha256, "SHA384":hashlib.sha384, "SHA512":hashlib.sha512, "NONE": None}
+    def update(self, value):
+        self.hash = binascii.crc32(str(self.hash).encode()) + binascii.crc32(value)
+
+    def hexdigest(self):
+        return hex(self.hash)
+
+AVAILABLE_MACS = {"NONE":None, "MD5": hashlib.md5, "SHA1": hashlib.sha1, "SHA224": hashlib.sha224, "SHA256":hashlib.sha256, "SHA384":hashlib.sha384, "SHA512":hashlib.sha512, "CRC32": CRC32HASH}
 
 def local():
     """ Local time """
@@ -234,7 +243,7 @@ class MCONT():
                 myhash = AVAILABLE_MACS[addmac.upper()]()
                 myhash.update(path.encode())
                 datak = list(data.keys())
-                print(datak)
+                #print(datak)
                 for k in datak:
                     myhash.update(data[k].encode())
                 data["H"] = (addmac.upper(), myhash.hexdigest())
@@ -250,11 +259,12 @@ class MCONT():
             duration = time.time() - start
         except Exception as failure:
             duration = -1
-            traceback.print_exc()
+            #traceback.print_exc()
             raise failure
 
         return {"Path": path,
                 "Plaintext": json.dumps(data),
+                "Payload": {"D": value},
                 "Ciphertext": ciphertext,
                 "Duration": duration}
 
@@ -288,6 +298,7 @@ class MCONT():
         except Exception as failure:
             print(failure)
             traceback.print_exc()
+            raise ValueError
 
         data = json.loads(plaintext)
 

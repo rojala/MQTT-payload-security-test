@@ -53,8 +53,8 @@ def on_message(client, userdata, message):
     except ValueError:
         DUMP.delete('1.0', tk.END)
         DUMP.insert(tk.INSERT, "Hash failure\n")
-        DUMP.insert(tk.INSERT, "\nBacktrace\n")
-        DUMP.insert(tk.INSERT, str(traceback.format_exc()))
+        #DUMP.insert(tk.INSERT, "\nBacktrace\n")
+        #DUMP.insert(tk.INSERT, str(traceback.format_exc()))
 
     except Exception as failure:
         DUMP.delete('1.0', tk.END)

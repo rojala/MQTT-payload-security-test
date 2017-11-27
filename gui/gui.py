@@ -1,10 +1,22 @@
 """ MQTT payload crypt analyzing tool """
 # pylint: disable=W0703
+import os
 import sys
+import shutil
 import traceback
 import hashlib
+import time
+import json
+import pickle
+import threading
 from paho.mqtt import publish
 import hexdump
+import subprocess
+import logging
+
+logging.basicConfig(level=logging.DEBUG,
+                    format='[%(levelname)s] (%(threadName)-10s) %(message)s',
+                    )
 
 if sys.version_info[0] >= 3:
     import tkinter as tk
@@ -16,7 +28,13 @@ else:
 sys.path.append('../')
 from mcont import mcont
 import mfile
+from analyze.analyze import analyze_randomness
 
+DUMP = None
+
+# #################################################################
+# PW UI
+# #################################################################
 #pylint: disable=R0901
 class PwApp(tk.Frame):
     """ Password application class """
@@ -77,6 +95,142 @@ class PwApp(tk.Frame):
         self.top.destroy()
         sys.exit(0)
 
+# #################################################################
+# TEST PROCESSES
+# #################################################################
+
+def test_a_algo_process(params):
+    arand = analyze_randomness(10, 2)
+    res = None
+    try:
+        #params.print("S")
+        res = params.run()
+    except Exception as failure:
+        #pass
+        trace = traceback.format_exc()
+        logging.debug("Exception: " + str(failure))
+        logging.debug("Exception: " + trace)
+    #params.print("X", 1)
+    return res
+
+def test_process_algos(params):
+    logging.debug("Starting")
+    from multiprocessing import Pool
+    import multiprocessing
+
+    try:
+        shutil.rmtree("analyse_temp", ignore_errors=True)
+        if not os.path.exists("analyse_temp"):
+            os.makedirs("analyse_temp")
+        threads = multiprocessing.cpu_count()
+        if 1 < threads:
+            threads -= 1
+        pool = Pool(threads)
+        results = pool.map(test_a_algo_process, params)
+        #DUMP.delete('1.0', tk.END)
+        #DUMP.insert(tk.INSERT, "Processing completed\n")
+        with open("results.bin", mode='wb') as write_fb:
+            content = pickle.dumps(results)
+            write_fb.write(content)
+        #DUMP.insert(tk.INSERT, "results.bin written.\n")
+    except Exception as failure:
+        #pass
+        trace = traceback.format_exc()
+        logging.debug("Exception: " + str(failure))
+        logging.debug("Exception: " + trace)
+    logging.debug("Completed")
+
+class test_data(object):
+    def __init__(self, myalg,
+                       alg,
+                       rounds,
+                       send_value,
+                       key_len,
+                       mac,
+                       rnd,
+                       mode,
+                       tstmp,
+                       seq,
+                       suffle,
+                       split):
+
+        self.myalg = myalg
+        self.alg = alg
+        self.rounds = rounds
+        self.send_value = send_value
+        self.mac = mac
+        self.key_len = key_len
+        self.rnd = rnd
+        self.mode = mode
+        self.tstmp = tstmp
+        self.seq = seq
+        self.suffle = suffle
+        self.split = split
+        self.score = -1
+        self.res = {"Alg":    alg,    "Keyl" : key_len,
+                    "Mode":   mode,   "Hash" : mac,
+                    "Tst":    tstmp,  "Seq"  : seq,
+                    "Rnd":    rnd,    "Split": self.split,
+                    "Suffle": suffle, "Score": self.score}
+        self.datatofile = []
+
+    def run(self):
+        try:
+            self.print(r"->", 0)
+            arand = analyze_randomness(10, 2)
+            for tstrnd in range(0, self.rounds):
+                ctxt = self.myalg.construct(self.send_value, self.mac,
+                                            int(self.rnd), self.mode,
+                                            self.tstmp, self.seq,
+                                            self.suffle, self.split)
+                arand.add(ctxt["Ciphertext"])
+                self.datatofile.append(ctxt["Ciphertext"])
+                #logging.debug("cipher: " + str(ctxt))
+            self.score = arand.analyze()
+            self.res["Score"] = self.score
+            self.writefile()
+            self.print(r"<-", 1)
+        except Exception as failure:
+            #pass
+            trace = traceback.format_exc()
+            logging.debug("Exception: " + str(failure))
+            logging.debug("Exception: " + trace)
+        return self.res
+
+    def writefile(self):
+        dbg = self.gettag()
+        try:
+            dbg = dbg.replace(" ", "_").replace(":", "-").replace(r"%", "mod")
+            outfp = open("analyse_temp/" + dbg + ".csv", "w")
+            if outfp:
+                cnt = 0
+                for row in self.datatofile:
+                    outfp.write("%d,%s\n" % (cnt,row))
+                    cnt += 1
+                outfp.close()
+        except Exception as failure:
+            print(failure)
+            sys.exit(2)
+ 
+    def gettag(self):
+        dbg = "Alg:" + self.alg + " Keyl:" + self.key_len + \
+              " Mode:" + self.mode + " Hash:" + self.mac +  \
+              " Tst:" + self.tstmp + " Seq:" + self.seq + \
+              " Rnd:" + str(self.rnd) + " Split:" + str(self.split) + \
+              " Suffle:" + str(self.suffle)
+        return dbg
+ 
+    def print(self, prefix, print_score=0):
+        dbg = self.gettag()
+        if print_score:
+            dbg += " Score:" + str(self.score)
+
+        logging.debug(prefix + " " + dbg)
+
+
+# #################################################################
+# UI
+# #################################################################
 #pylint: disable=R0902
 #pylint: disable=R0915
 class App(tk.Frame):
@@ -169,6 +323,11 @@ class App(tk.Frame):
         tk.Label(self, text="Client ID").grid(row=10, column=0)
         self.mqtt_id.grid(row=10, column=1)
 
+
+        tk.Label(self, text="#test rounds:").grid(row=9, column=4)
+        self.numtestrnds.grid(row=10, column=4)
+        self.numtestrnds.insert(tk.END, "5")
+
         self.randomize_var = tk.IntVar()
         self.randomize_chk = tk.Checkbutton(self,
                                             text="Randomize payload dict",
@@ -186,22 +345,91 @@ class App(tk.Frame):
 
         self.splitrand_chk.grid(row=3, column=4)
 
-
         self.send_button = tk.Button(text="Send", command=self.sendmqtt)
         self.send_button.pack(fill=tk.X, padx=10)
 
         self.clear_button = tk.Button(text="Clear", command=self.clear)
         self.clear_button.pack(fill=tk.X, padx=10)
 
+        self.test_button = tk.Button(text="Test", command=self.test)
+        self.test_button.pack(fill=tk.X, padx=10)
+
         self.dump = tk.Text(master, width=100, height=15)
         self.dump.pack(fill=tk.X, padx=10, anchor=tk.N)
 
         self.pack()
 
+        global DUMP
+        DUMP = self.dump
+
     def clear(self):
         """ Clear dump section - text part on UI """
         if self.dump:
             self.dump.delete('1.0', tk.END)
+
+            res = None
+
+    def test_a_algo_run(self, params):
+        logging.debug("--->")
+        threading.Thread(target=test_process_algos, args=(params,)).start()
+        logging.debug("<---")
+
+    def test(self):
+        """ Test all possible compinations with given data.
+            Single test is executed as many times as desired,
+            but minimum is 2 times """
+
+        send_value = self.dump.get("1.0", tk.END).rstrip()
+        self.dump.delete('1.0', tk.END)
+        rounds = int(self.numtestrnds.get()) # error not tested text, negative
+        if 4 > rounds:
+            self.dump.insert(tk.INSERT, "5 test rounds is minimum - test cancelled")
+            return
+        elif 200 < rounds:
+            self.dump.insert(tk.INSERT, "200 test rounds is maximum - test cancelled")
+            return
+        mac = self.variable_mac.get()
+        rnd = self.variable_rands.get()
+        seq = self.variable_seqs.get()
+
+        runme = []
+        try:
+            cnt = 1
+            for alg in mcont.get_available_algorithms():                # algorithms ["NONE"]: #
+                test_ciphertext = []
+                self.dump.see(tk.END)
+                myalg = mcont.MCONT(alg.upper(), mfile.pw)              # select algorithm
+                for key in  myalg.get_key_len():                        # key lens
+                    myalg.set_key_len(key)                              # set keylen
+                    for mode in myalg.get_modes():                      # modes
+                        for mac in self.macs:                           # hash functions
+                            for tstmp in self.tstamps:                  # timestamps
+                                for seq in self.seqs:                   # sequence numbers
+                                    for rnd in self.rands:              # random functions
+                                        for split in range(0, 2):       # split random numbers
+                                            for suffle in range(0, 2):  # suffle payload dict
+                                                cnt += rounds
+                                                tsd = test_data(myalg,
+                                                                alg,
+                                                                rounds,
+                                                                send_value,
+                                                                key,
+                                                                mac,
+                                                                rnd,
+                                                                mode,
+                                                                tstmp,
+                                                                seq,
+                                                                suffle,
+                                                                split)
+                                                runme.append(tsd)
+
+            self.dump.delete('1.0', tk.END)
+            self.dump.insert(tk.INSERT, "Please wait - processing " + str(cnt))
+            self.dump.insert(tk.INSERT, " test runs\n")
+            self.dump.insert(tk.INSERT, "will take quite some time!\n")
+            self.test_a_algo_run(runme)
+        except Exception as e:
+            self.dump.insert(tk.INSERT,str(e))
 
     def open_conf(self):
         """ Open configuration file """
@@ -312,13 +540,17 @@ class App(tk.Frame):
                 self.dump.insert(tk.INSERT, package["Plaintext"])
                 self.dump.insert(tk.INSERT, "\n\nPath\n")
                 self.dump.insert(tk.INSERT, package["Path"])
-                self.dump.insert(tk.INSERT, "\n\nPlaintext vs. ciphertext\n")
+                self.dump.insert(tk.INSERT, "\n\nPlaintext/Payload vs. ciphertext\n")
                 plaintxt = len(package["Plaintext"])
+                payload = len(json.dumps(package["Payload"]))
                 ciphertext = len(package["Ciphertext"])
                 dump_txt = "Plaintext " + str(plaintxt) + " bytes - Ciphertext " + \
-                    str(ciphertext) + " bytes ratio P/C " + str(round(plaintxt/ciphertext, 5))
+                    str(ciphertext) + " bytes ratio P/C " + str(round(plaintxt/ciphertext, 5)) + "\n"
                 self.dump.insert(tk.INSERT, dump_txt)
-                self.dump.insert(tk.INSERT, "\n\nUsed path vs. set path\n")
+                dump_txt = "Payload " + str(payload) + " bytes - Ciphertext " + \
+                    str(ciphertext) + " bytes ratio P/C " + str(round(payload/ciphertext, 5)) + "\n"
+                self.dump.insert(tk.INSERT, dump_txt)
+                self.dump.insert(tk.INSERT, "\nUsed path vs. set path\n")
                 self.dump.insert(tk.INSERT, package["Path"] + " " + str(self.alg.get_path()))
                 self.dump.insert(tk.INSERT, "\n\nEncrypt duration\n")
                 self.dump.insert(tk.END, str(round(package["Duration"], 8)) + "\n")

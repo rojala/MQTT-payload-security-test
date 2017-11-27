@@ -11,7 +11,7 @@ class MQTTNONE():
     def encrypt(self, plaintext):
         """ Encrypt """
         self = self
-        return plaintext
+        return bytes(str(plaintext).encode())
 
     def decrypt(self, ciphertext):
         """ Decrypt """

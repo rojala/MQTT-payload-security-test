@@ -44,8 +44,8 @@ class MQTTRSA():
 
     def encrypt(self, data):
         """ Encrypt """
-        if (self.key_len/8) < (len(data)-2):
-            raise ValueError
+        #if (self.key_len/8) < (len(data)-2):
+        #    raise ValueError
 
         cipher_rsa = PKCS1_OAEP.new(self.pubkey)
         ciphertext = cipher_rsa.encrypt(data.encode("utf-8"))
